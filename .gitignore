@@ -3,3 +3,7 @@ __pycache__/
 *.log
 .env
 .DS_Store
+
+# Vector DB runtime files
+chroma_db/
+*.sqlite3
