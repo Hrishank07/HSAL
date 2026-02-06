@@ -4,46 +4,59 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Ollama](https://img.shields.io/badge/Ollama-llama3.2-orange.svg)](https://ollama.com/)
 
-## 1. Executive Summary (The Pitch)
+---
 
-Most modern LLM caching strategies rely almost entirely on **Vector Databases** (e.g., Chroma, Pinecone) to capture semantic similarity. While effective for paraphrased queries, this approach imposes a significant and unnecessary **tax on exact matches**.
+## 1. What is HSAL? (The Concept)
 
-In current systems, **every request—including identical repeats—is forced through embedding generation and vector search**. This introduces avoidable latency, increases CPU/GPU utilization, and drives up costs. Identical prompts are common, yet systems repeatedly pay the full semantic-processing cost for them.
+**HSAL** is a high-performance orchestration layer designed to optimize LLM request pipelines. It addresses a fundamental inefficiency in modern AI architectures: the **Vector Processing Tax**.
 
-**HSAL** eliminates this inefficiency by splitting request handling into two deterministic paths:
-- **L1: Exact-Match Cache**: A hash-based lookup for identical prompts, returning responses in **<1ms**.
-- **L2: Semantic Cache**: A vector database used only when an exact match is unavailable.
+### The Problem: The Vector Tax
+Modern semantic caches rely on Vector Databases (Chroma, Pinecone, etc.) for everything. While great for semantic similarity, they are overkill for exact matches. Forcing an identical repeat query through embedding generation and vector search is:
+1.  **Expensive**: Consumes GPU/CPU cycles and API credits.
+2.  **Slow**: Adds dozens of milliseconds of unnecessary latency.
+3.  **Redundant**: The logic is probabilistic where it could be deterministic.
+
+### The Solution: Two-Tier Deterministic Caching
+HSAL introduces a disciplined, multi-path retrieval strategy:
+- **L1 (Fast Path)**: Sub-millisecond, O(1) hash-based lookup for identical queries.
+- **L2 (Warm Path)**: Semantic similarity search for paraphrased or fuzzy matches.
 
 ---
 
-## 2. The Implementation
+## 2. Why HSAL? (The Rationale)
 
-### 2.1 The "Smart Router" Algorithm
-HSAL orchestrates queries through a tiered transition:
+We built HSAL because production LLM workloads often follow a Power Law distribution—a small percentage of prompts (instructions, standard greetings, repetitive tasks) make up a large percentage of traffic.
 
-1.  **L1 FAST PATH (Exact Match)**: O(1) SHA-256 hash lookup.
-2.  **L2 WARM PATH (Semantic Match)**: Embedding generation + Vector Search.
-    - **Cache Promotion**: If a semantic match is found above a high threshold (e.g., 0.95), it is "promoted" to L1 for future sub-millisecond retrieval.
-3.  **COLD PATH (LLM Generation)**: Full generation via Ollama/OpenAI, then population of both cache layers.
+| Tier | Method | Latency | Logic | Benefit |
+| :--- | :--- | :--- | :--- | :--- |
+| **L1** | Hash Map (Redis/RAM) | **<1 ms** | Deterministic | Zero compute cost, near-zero latency |
+| **L2** | Vector DB (Chroma) | **10-30 ms** | Probabilistic | Handles paraphrasing & intent |
+| **LLM** | Generation (Ollama) | **~2000 ms** | Generative | Full inference cost |
 
-### 2.2 Performance Goals
-- **L1 (Exact)**: <1 ms latency.
-- **L2 (Semantic)**: 10–30 ms latency.
-- **LLM (Cold)**: ~2000 ms (depends on model).
-- **Target**: ≥30% reduction in embedding calls.
+By capturing L1 hits before generating embeddings, HSAL can reduce embedding infrastructure load by **30%-60%** in high-repeat environments.
 
 ---
 
-## 3. Project Structure
+## 3. How It Works? (The Logic)
 
-```text
-hsal/
-├── core/           # Routing & Hashing logic
-├── services/       # Cache, Embedder, and LLM adapters
-└── utils/          # Pydantic Configuration
-main.py             # Interactive CLI Demo
-app.py              # FastAPI Service
-```
+The heart of HSAL is the **Smart Router**. It orchestrates every request through a precise selection flow.
+
+### 3.1 Pre-processing: Semantic Normalization
+Before hashing, prompts undergo normalization:
+- Trimming whitespace.
+- Lowercasing (optional).
+- Removing redundant line breaks.
+*This ensures ` "Hello world"` and `"hello world  "` map to the same L1 record.*
+
+### 3.2 The Decision Flow
+1.  **L1 FAST PATH**: Compute a SHA-256 hash of the normalized prompt. Check the L1 store. If hit, return immediately.
+2.  **L2 WARM PATH**: If L1 misses, generate a vector embedding. Query the L2 Vector DB.
+    - If a result is found above `SIMILARITY_THRESHOLD` (e.g., 0.85), return it.
+3.  **CACHE PROMOTION**: If an L2 hit is exceptionally strong (e.g., > 0.95), HSAL "promotes" it by writing the exact prompt's hash into L1. Future identical requests will now hit the Fast Path directly.
+4.  **COLD PATH**: If both fail, trigger the LLM. Once generated, update both L1 and L2 for future queries.
+
+### 3.3 Circuit Breaker Logic
+To ensure stability, HSAL monitors the health of the Embedder and Cache services. If a service experiences persistent failures, HSAL **fails open**, routing traffic directly to the LLM to prevent application downtime.
 
 ---
 
@@ -61,35 +74,24 @@ HSAL is optimized for local development using **Ollama**.
 
 ### Installation
 ```bash
-# Clone the repository
+# Clone and setup
 git clone https://github.com/Hrishank07/HSAL.git
 cd HSAL
-
-# Setup Virtual Environment
 python -m venv venv
 source venv/bin/activate
-
-# Install Dependencies
 pip install -r requirements.txt
 ```
 
-### Running the Demo
-```bash
-python main.py
-```
-
-### Running the API
-```bash
-uvicorn app:app --reload
-```
+### Running the System
+- **Demo CLI**: `python main.py`
+- **FastAPI Server**: `uvicorn app:app --reload`
 
 ---
 
-## 5. Notes & Future Roadmap
-- **Infrastructure-Level Optimization**: Requires zero changes to application logic.
-- **Normalization**: Prompts are normalized before hashing to increase hit rates (whitespace/casing).
-- **Circuit Breaker**: HSAL fails open to the LLM if the embedder or cache layers experience high failure rates.
-- **Async Support**: Production deployments should move L2 writes to an async queue.
+## 5. Project Roadmap
+- **Async Write-Through**: Moving L2 writes to background tasks.
+- **Hybrid L1**: Cross-instance L1 using a shared Redis instance.
+- **Adaptive Thresholds**: Machine-learning-based threshold adjustment.
 
 ---
 
