@@ -21,7 +21,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pip-audit
-      - run: pip-audit -r requirements.txt
+      # CVE-2026-45829 ("ChromaToast"): pre-auth RCE in ChromaDB's FastAPI
+      # *server mode* via malicious embedding-function config. No fixed
+      # release exists yet. HSAL is not exposed: it uses the embedded
+      # PersistentClient (no Chroma server/port) and never uses Chroma's
+      # embedding functions (embeddings are computed externally and passed
+      # as raw vectors). Remove this ignore once a patched version ships —
+      # Dependabot + the weekly schedule will surface it.
+      - run: pip-audit -r requirements.txt --ignore-vuln CVE-2026-45829
 
   codeql:
     runs-on: ubuntu-latest

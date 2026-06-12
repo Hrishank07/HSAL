@@ -211,7 +211,9 @@ pytest          # 36 tests
 ruff check .    # lint
 ```
 
-CI (GitHub Actions) runs lint, the test suite across Python 3.10–3.12, and a benchmark smoke run on every push and pull request.
+CI (GitHub Actions) runs lint, the test suite across Python 3.10–3.12, and a benchmark smoke run on every push and pull request. A separate workflow runs pip-audit and CodeQL on pushes and weekly.
+
+> **Security note (CVE-2026-45829, "ChromaToast")**: a critical pre-auth RCE exists in ChromaDB's *server mode* with no patched release yet. HSAL is not exposed — it uses the embedded `PersistentClient` (no Chroma server process or open port) and computes embeddings externally, never via Chroma's embedding functions, which is the vulnerable path. The CVE is explicitly suppressed in CI with this rationale and will be unsuppressed when a fix ships. Do **not** run `chroma run` / Chroma's HTTP server alongside HSAL until patched.
 
 ---
 
