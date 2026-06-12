@@ -55,8 +55,15 @@ Before hashing, prompts undergo normalization:
 3.  **CACHE PROMOTION**: If an L2 hit is exceptionally strong (e.g., > 0.95), HSAL "promotes" it by writing the exact prompt's hash into L1. Future identical requests will now hit the Fast Path directly.
 4.  **COLD PATH**: If both fail, trigger the LLM. Once generated, update both L1 and L2 for future queries.
 
-### 3.3 Circuit Breaker Logic
-To ensure stability, HSAL monitors the health of the Embedder and Cache services. If a service experiences persistent failures, HSAL **fails open**, routing traffic directly to the LLM to prevent application downtime.
+### 3.3 Cache Policy (TTL & LRU)
+Cached LLM answers go stale and unbounded caches leak memory, so the L1 cache enforces:
+- **LRU eviction**: capped at `L1_MAX_SIZE` entries (default 10,000); least recently used entries are evicted first.
+- **TTL expiry**: entries expire after `L1_TTL_SECONDS` (default 1 hour); set to `0` to disable.
+
+The Redis backend applies the same TTL via native key expiry.
+
+### 3.4 Known Trade-off: Semantic False Positives
+A semantic cache can return a *wrong* answer for a *similar* question — "What is the capital of France?" and "What is the capital of Finland?" can clear a 0.9 cosine threshold despite having different answers. `SIMILARITY_THRESHOLD` is deliberately configurable per deployment: raise it (e.g. 0.95+) for factual or precision-sensitive workloads, lower it for FAQ-style traffic where paraphrase tolerance matters more than exactness.
 
 ---
 
@@ -86,11 +93,37 @@ pip install -r requirements.txt
 - **Demo CLI**: `python main.py`
 - **FastAPI Server**: `uvicorn app:app --reload`
 
+### API Endpoints
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/query` | POST | Run a prompt through the L1 → L2 → LLM pipeline |
+| `/stats` | GET | Hit counts, cache hit rate, and avg latency per tier |
+| `/health` | GET | Liveness check |
+
+```bash
+curl -X POST localhost:8000/query -H "Content-Type: application/json" \
+     -d '{"prompt": "What is Python?"}'
+curl localhost:8000/stats
+```
+
 ---
 
-## 5. Project Roadmap
+## 5. Testing
+
+The router, hashing, and cache logic are unit-tested against mock backends — no Ollama or ChromaDB required:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+---
+
+## 6. Project Roadmap
+- **Circuit Breaker**: Fail open to the LLM when the embedder or vector DB is unhealthy.
 - **Async Write-Through**: Moving L2 writes to background tasks.
 - **Hybrid L1**: Cross-instance L1 using a shared Redis instance.
+- **L2 TTL/Eviction**: Age out stale vector entries.
 - **Adaptive Thresholds**: Machine-learning-based threshold adjustment.
 
 ---

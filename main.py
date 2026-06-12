@@ -21,7 +21,7 @@ def print_response(prompt: str, response):
     print(f"SOURCE: {response.source.value}")
     print(f"LATENCY: {response.latency_ms:.2f}ms")
     
-    if response.similarity_score:
+    if response.similarity_score is not None:
         score = response.similarity_score
         status = "✅ SEMANTIC HIT" if score >= 0.9 else "⚠️ LOW SIMILARITY"
         print(f"SIMILARITY SCORE: {score:.4f} ({status})")
@@ -56,7 +56,7 @@ def main():
         print("✅ Services connected!\n")
     except Exception as e:
         print(f"❌ Error connecting to Ollama: {e}")
-        print("Make sure 'ollama serve' is running and you have pulledllama3.2 and nomic-embed-text.")
+        print("Make sure 'ollama serve' is running and you have pulled llama3.2 and nomic-embed-text.")
         sys.exit(1)
 
     while True:

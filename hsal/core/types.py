@@ -7,7 +7,6 @@ class CacheSource(Enum):
     L1_EXACT = "L1_EXACT"
     L2_SEMANTIC = "L2_SEMANTIC"
     LLM_GENERATED = "LLM_GENERATED"
-    MISS = "MISS"
 
 @dataclass
 class CacheRequest:

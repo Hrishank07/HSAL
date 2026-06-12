@@ -8,7 +8,6 @@ from hsal import (
     ChromaL2Cache,
     OllamaEmbedder,
     OllamaLLM,
-    CacheSource
 )
 
 app = FastAPI(title="HSAL API - Local Semantic Cache")
@@ -21,8 +20,10 @@ embedder = OllamaEmbedder()
 llm = OllamaLLM()
 router = HSALRouter(l1, l2, embedder, llm)
 
+
 class QueryRequest(BaseModel):
     prompt: str
+
 
 class QueryResponse(BaseModel):
     response: str
@@ -30,8 +31,12 @@ class QueryResponse(BaseModel):
     latency_ms: float
     similarity_score: Optional[float] = None
 
+
+# Note: deliberately a sync endpoint. router.query() is blocking (embedding +
+# LLM calls), so FastAPI runs it in a threadpool instead of blocking the event
+# loop, which an `async def` here would do.
 @app.post("/query", response_model=QueryResponse)
-async def query_hsal(request: QueryRequest):
+def query_hsal(request: QueryRequest):
     try:
         result = router.query(CacheRequest(prompt=request.prompt))
         return QueryResponse(
@@ -43,9 +48,17 @@ async def query_hsal(request: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/stats")
+def stats():
+    """Cache hit rates and average latency per tier."""
+    return router.stats()
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "provider": "ollama"}
+
 
 if __name__ == "__main__":
     import uvicorn

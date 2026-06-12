@@ -1,5 +1,7 @@
+import threading
 import time
 from typing import Optional
+
 from hsal.core.types import CacheRequest, CacheResponse, CacheSource
 from hsal.core.hashing import hash_prompt
 from hsal.services.embedder import EmbedderService
@@ -8,17 +10,18 @@ from hsal.services.l2_cache import L2CacheService
 from hsal.services.llm import LLMService
 from hsal.utils.config import settings
 
+
 class HSALRouter:
     """
     The Smart Router - Core orchestration logic for HSAL.
-    
+
     Flow:
     1. Check L1 (exact match) - O(1) hash lookup
     2. If miss, check L2 (semantic match) - vector similarity
     3. If L2 hit above threshold, promote to L1
     4. If both miss, call LLM and update both caches
     """
-    
+
     def __init__(
         self,
         l1_cache: L1CacheService,
@@ -32,10 +35,14 @@ class HSALRouter:
         self.l2_cache = l2_cache
         self.embedder = embedder
         self.llm = llm
-        
+
         self.similarity_threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
         self.promotion_threshold = promotion_threshold or settings.PROMOTION_THRESHOLD
-    
+
+        self._stats_lock = threading.Lock()
+        self._counts = {source: 0 for source in CacheSource}
+        self._latency_ms = {source: 0.0 for source in CacheSource}
+
     def query(self, request: CacheRequest) -> CacheResponse:
         """
         Main entry point for HSAL query.
@@ -43,49 +50,72 @@ class HSALRouter:
         """
         start_time = time.time()
         prompt = request.prompt
-        
+
         # Step 1: L1 Exact Match (Fast Path)
         hash_key = hash_prompt(prompt)
         l1_result = self.l1_cache.get(hash_key)
-        
+
         if l1_result is not None:
-            latency_ms = (time.time() - start_time) * 1000
-            return CacheResponse(
-                response=l1_result,
-                source=CacheSource.L1_EXACT,
-                latency_ms=latency_ms
-            )
-        
+            return self._respond(l1_result, CacheSource.L1_EXACT, start_time)
+
         # Step 2: L2 Semantic Match (Warm Path)
         embedding = self.embedder.embed(prompt)
         l2_result = self.l2_cache.search(embedding)
-        
+
         if l2_result.found and l2_result.similarity_score >= self.similarity_threshold:
-            # Cache hit in L2
-            response = l2_result.response
-            
             # Step 3: Cache Promotion (if score is high enough)
             if l2_result.similarity_score >= self.promotion_threshold:
-                self.l1_cache.set(hash_key, response)
-            
-            latency_ms = (time.time() - start_time) * 1000
-            return CacheResponse(
-                response=response,
-                source=CacheSource.L2_SEMANTIC,
-                latency_ms=latency_ms,
+                self.l1_cache.set(hash_key, l2_result.response)
+
+            return self._respond(
+                l2_result.response, CacheSource.L2_SEMANTIC, start_time,
                 similarity_score=l2_result.similarity_score
             )
-        
+
         # Step 4: Cold Path - LLM Generation
         response = self.llm.generate(prompt)
-        
+
         # Update both caches
         self.l1_cache.set(hash_key, response)
         self.l2_cache.add(prompt, response, embedding)
-        
+
+        return self._respond(response, CacheSource.LLM_GENERATED, start_time)
+
+    def _respond(
+        self,
+        response: str,
+        source: CacheSource,
+        start_time: float,
+        similarity_score: Optional[float] = None
+    ) -> CacheResponse:
         latency_ms = (time.time() - start_time) * 1000
+        with self._stats_lock:
+            self._counts[source] += 1
+            self._latency_ms[source] += latency_ms
         return CacheResponse(
             response=response,
-            source=CacheSource.LLM_GENERATED,
-            latency_ms=latency_ms
+            source=source,
+            latency_ms=latency_ms,
+            similarity_score=similarity_score
         )
+
+    def stats(self) -> dict:
+        """Hit counts, hit rate, and average latency per tier."""
+        with self._stats_lock:
+            counts = dict(self._counts)
+            latency = dict(self._latency_ms)
+
+        total = sum(counts.values())
+        cache_hits = counts[CacheSource.L1_EXACT] + counts[CacheSource.L2_SEMANTIC]
+        return {
+            "total_queries": total,
+            "cache_hit_rate": round(cache_hits / total, 4) if total else 0.0,
+            "by_source": {
+                source.value: {
+                    "count": counts[source],
+                    "avg_latency_ms": round(latency[source] / counts[source], 2)
+                    if counts[source] else 0.0
+                }
+                for source in CacheSource
+            }
+        }

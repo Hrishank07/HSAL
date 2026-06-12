@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from typing import Optional, List
-from openai import OpenAI
 from hsal.utils.config import settings
 
 class EmbedderService(ABC):
@@ -15,6 +14,7 @@ class OpenAIEmbedder(EmbedderService):
     """OpenAI-based embedder"""
     
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+        from openai import OpenAI  # lazy import: only needed for the OpenAI backend
         self.api_key = api_key or settings.OPENAI_API_KEY
         self.model = model or settings.EMBEDDING_MODEL
         

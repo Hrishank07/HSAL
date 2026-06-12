@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
-import chromadb
-from chromadb.config import Settings as ChromaSettings
 from hsal.core.types import L2SearchResult
 from hsal.utils.config import settings
 
@@ -22,6 +20,9 @@ class ChromaL2Cache(L2CacheService):
     """ChromaDB-based L2 cache"""
     
     def __init__(self, path: Optional[str] = None, collection_name: Optional[str] = None):
+        import chromadb  # lazy import: only needed when Chroma backend is used
+        from chromadb.config import Settings as ChromaSettings
+
         self.path = path or settings.CHROMA_PATH
         self.collection_name = collection_name or settings.COLLECTION_NAME
         

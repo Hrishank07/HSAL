@@ -1,7 +1,9 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")
+
     # App Config
     APP_NAME: str = "HSAL"
     DEBUG: bool = False
@@ -29,8 +31,9 @@ class Settings(BaseSettings):
     # HSAL Logic
     SIMILARITY_THRESHOLD: float = 0.9  # Threshold for L2 hit
     PROMOTION_THRESHOLD: float = 0.95  # Threshold to promote L2 hit to L1
-    
-    class Config:
-        env_file = ".env"
 
+    # L1 Cache Policy
+    L1_MAX_SIZE: int = 10_000   # Max entries for in-memory L1 (LRU eviction)
+    L1_TTL_SECONDS: int = 3600  # Entry TTL; 0 disables expiry
+    
 settings = Settings()
