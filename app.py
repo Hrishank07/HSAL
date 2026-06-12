@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 from typing import Optional
 from hsal import (
@@ -9,6 +9,7 @@ from hsal import (
     OllamaEmbedder,
     OllamaLLM,
 )
+from hsal.observability import metrics_response, new_request_id, record_request
 
 app = FastAPI(title="HSAL API - Local Semantic Cache")
 
@@ -35,11 +36,17 @@ class QueryRequest(BaseModel):
     cacheable: bool = True
 
 
-class QueryResponse(BaseModel):
-    response: str
-    source: str
+class QueryMetadata(BaseModel):
+    request_id: str
+    path: str  # L1_EXACT | L2_SEMANTIC | LLM_GENERATED
+    cacheable: bool
     latency_ms: float
     similarity_score: Optional[float] = None
+
+
+class QueryResponse(BaseModel):
+    response: str
+    metadata: QueryMetadata
 
 
 # Note: deliberately a sync endpoint. router.query() is blocking (embedding +
@@ -47,22 +54,45 @@ class QueryResponse(BaseModel):
 # loop, which an `async def` here would do.
 @app.post("/query", response_model=QueryResponse)
 def query_hsal(request: QueryRequest):
+    request_id = new_request_id()
     try:
-        result = router.query(CacheRequest(prompt=request.prompt, cacheable=request.cacheable))
-        return QueryResponse(
-            response=result.response,
-            source=result.source.value,
-            latency_ms=result.latency_ms,
-            similarity_score=result.similarity_score
+        result = router.query(
+            CacheRequest(prompt=request.prompt, cacheable=request.cacheable)
         )
     except Exception as e:
+        record_request(request_id, "ERROR", request.cacheable, 0.0, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+    record_request(
+        request_id,
+        result.source.value,
+        request.cacheable,
+        result.latency_ms,
+        result.similarity_score,
+    )
+    return QueryResponse(
+        response=result.response,
+        metadata=QueryMetadata(
+            request_id=request_id,
+            path=result.source.value,
+            cacheable=request.cacheable,
+            latency_ms=round(result.latency_ms, 2),
+            similarity_score=result.similarity_score,
+        ),
+    )
 
 
 @app.get("/stats")
 def stats():
-    """Cache hit rates and average latency per tier."""
+    """Human-readable summary: hit rates and average latency per tier."""
     return router.stats()
+
+
+@app.get("/metrics")
+def metrics():
+    """Prometheus exposition format."""
+    payload, content_type = metrics_response()
+    return Response(content=payload, media_type=content_type)
 
 
 @app.get("/health")

@@ -134,8 +134,24 @@ pip install -r requirements.txt
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
 | `/query` | POST | Run a prompt through the L1 → L2 → LLM pipeline |
-| `/stats` | GET | Hit counts, cache hit rate, and avg latency per tier |
+| `/stats` | GET | Human-readable summary: hit rates, avg latency per tier |
+| `/metrics` | GET | Prometheus exposition: request counters, latency histograms |
 | `/health` | GET | Liveness check |
+
+Every response carries decision metadata, and each request emits one structured JSON log line — so you can always answer *why* a response came from where it did:
+
+```json
+{
+  "response": "Python is...",
+  "metadata": {
+    "request_id": "req_a1b2c3d4e5f6",
+    "path": "L1_EXACT",
+    "cacheable": true,
+    "latency_ms": 0.42,
+    "similarity_score": null
+  }
+}
+```
 
 ```bash
 curl -X POST localhost:8000/query -H "Content-Type: application/json" \
@@ -147,6 +163,18 @@ curl -X POST localhost:8000/query -H "Content-Type: application/json" \
 
 curl localhost:8000/stats
 ```
+
+### Demo Scenarios
+Each of these is directly reproducible against the running server and covered by the test suite:
+
+| # | Scenario | Expected Behavior |
+| :--- | :--- | :--- |
+| 1 | Same prompt twice | 1st: `LLM_GENERATED` (~2s) → 2nd: `L1_EXACT` (<1ms) |
+| 2 | Whitespace/case variant of a cached prompt | `L1_EXACT` — normalization maps both to one key |
+| 3 | Paraphrase of a cached prompt | `L2_SEMANTIC` with similarity score; promoted to L1 if ≥ 0.95 |
+| 4 | `"cacheable": false` request | Always `LLM_GENERATED`; nothing read from or written to either cache |
+| 5 | Same prompt, different `context` (model/system prompt) | Cache miss — context fingerprint isolates configurations |
+| 6 | Unique prompts only | 0% hit rate — caching honestly buys nothing here |
 
 ---
 
