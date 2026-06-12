@@ -1,7 +1,6 @@
 import time
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from typing import Optional, Tuple
 
 from hsal.utils.config import settings
 
@@ -10,7 +9,7 @@ class L1CacheService(ABC):
     """Abstract L1 cache interface"""
 
     @abstractmethod
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         """Get value from cache"""
         pass
 
@@ -28,12 +27,12 @@ class InMemoryL1Cache(L1CacheService):
     - ttl_seconds expires stale entries; 0 disables expiry.
     """
 
-    def __init__(self, max_size: Optional[int] = None, ttl_seconds: Optional[int] = None):
+    def __init__(self, max_size: int | None = None, ttl_seconds: int | None = None):
         self.max_size = max_size or settings.L1_MAX_SIZE
         self.ttl = settings.L1_TTL_SECONDS if ttl_seconds is None else ttl_seconds
-        self._cache: "OrderedDict[str, Tuple[float, str]]" = OrderedDict()
+        self._cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
 
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         entry = self._cache.get(key)
         if entry is None:
             return None
@@ -59,9 +58,9 @@ class InMemoryL1Cache(L1CacheService):
 class RedisL1Cache(L1CacheService):
     """Redis-based L1 cache (for production / cross-instance sharing)"""
 
-    def __init__(self, host: Optional[str] = None, port: Optional[int] = None,
-                 db: Optional[int] = None, password: Optional[str] = None,
-                 ttl_seconds: Optional[int] = None):
+    def __init__(self, host: str | None = None, port: int | None = None,
+                 db: int | None = None, password: str | None = None,
+                 ttl_seconds: int | None = None):
         import redis  # lazy import: only needed when Redis backend is used
 
         self.host = host or settings.REDIS_HOST
@@ -78,7 +77,7 @@ class RedisL1Cache(L1CacheService):
             decode_responses=True
         )
 
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         return self.client.get(key)
 
     def set(self, key: str, value: str) -> None:

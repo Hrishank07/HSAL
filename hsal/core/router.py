@@ -1,9 +1,8 @@
 import threading
 import time
-from typing import Optional
 
+from hsal.core.hashing import context_fingerprint, hash_prompt
 from hsal.core.types import CacheRequest, CacheResponse, CacheSource
-from hsal.core.hashing import hash_prompt, context_fingerprint
 from hsal.services.embedder import EmbedderService
 from hsal.services.l1_cache import L1CacheService
 from hsal.services.l2_cache import L2CacheService
@@ -28,9 +27,9 @@ class HSALRouter:
         l2_cache: L2CacheService,
         embedder: EmbedderService,
         llm: LLMService,
-        similarity_threshold: Optional[float] = None,
-        promotion_threshold: Optional[float] = None,
-        context: Optional[dict] = None
+        similarity_threshold: float | None = None,
+        promotion_threshold: float | None = None,
+        context: dict | None = None
     ):
         """
         context: everything that affects generation output beyond the user
@@ -103,7 +102,7 @@ class HSALRouter:
         response: str,
         source: CacheSource,
         start_time: float,
-        similarity_score: Optional[float] = None
+        similarity_score: float | None = None
     ) -> CacheResponse:
         latency_ms = (time.time() - start_time) * 1000
         with self._stats_lock:

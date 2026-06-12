@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional
+
 from hsal.core.types import L2SearchResult
 from hsal.utils.config import settings
 
@@ -8,13 +8,13 @@ class L2CacheService(ABC):
     """Abstract L2 cache interface"""
 
     @abstractmethod
-    def search(self, embedding: List[float], top_k: int = 1,
+    def search(self, embedding: list[float], top_k: int = 1,
                namespace: str = "default") -> L2SearchResult:
         """Search for similar embeddings within a context namespace"""
         pass
 
     @abstractmethod
-    def add(self, prompt: str, response: str, embedding: List[float],
+    def add(self, prompt: str, response: str, embedding: list[float],
             namespace: str = "default") -> None:
         """Add entry to vector cache under a context namespace"""
         pass
@@ -29,7 +29,7 @@ class ChromaL2Cache(L2CacheService):
     cached answer is never served across different generation configs.
     """
 
-    def __init__(self, path: Optional[str] = None, collection_name: Optional[str] = None):
+    def __init__(self, path: str | None = None, collection_name: str | None = None):
         import chromadb  # lazy import: only needed when Chroma backend is used
         from chromadb.config import Settings as ChromaSettings
 
@@ -48,7 +48,7 @@ class ChromaL2Cache(L2CacheService):
             metadata={"hnsw:space": "cosine"}
         )
 
-    def search(self, embedding: List[float], top_k: int = 1,
+    def search(self, embedding: list[float], top_k: int = 1,
                namespace: str = "default") -> L2SearchResult:
         """Search for similar embeddings using cosine similarity"""
         results = self.collection.query(
@@ -73,7 +73,7 @@ class ChromaL2Cache(L2CacheService):
             found=True
         )
 
-    def add(self, prompt: str, response: str, embedding: List[float],
+    def add(self, prompt: str, response: str, embedding: list[float],
             namespace: str = "default") -> None:
         """Add entry to vector database"""
         import uuid

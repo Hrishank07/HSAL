@@ -1,11 +1,12 @@
+
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
-from typing import Optional
+
 from hsal import (
-    HSALRouter,
     CacheRequest,
-    InMemoryL1Cache,
     ChromaL2Cache,
+    HSALRouter,
+    InMemoryL1Cache,
     OllamaEmbedder,
     OllamaLLM,
 )
@@ -41,7 +42,7 @@ class QueryMetadata(BaseModel):
     path: str  # L1_EXACT | L2_SEMANTIC | LLM_GENERATED
     cacheable: bool
     latency_ms: float
-    similarity_score: Optional[float] = None
+    similarity_score: float | None = None
 
 
 class QueryResponse(BaseModel):
@@ -61,7 +62,7 @@ def query_hsal(request: QueryRequest):
         )
     except Exception as e:
         record_request(request_id, "ERROR", request.cacheable, 0.0, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     record_request(
         request_id,

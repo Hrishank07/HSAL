@@ -1,8 +1,10 @@
 # Hybrid Semantic Acceleration Layer (HSAL) 🗳️
 
+[![CI](https://github.com/Hrishank07/HSAL/actions/workflows/ci.yml/badge.svg)](https://github.com/Hrishank07/HSAL/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Ollama](https://img.shields.io/badge/Ollama-llama3.2-orange.svg)](https://ollama.com/)
+[![Code style: ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 ---
 
@@ -130,6 +132,12 @@ pip install -r requirements.txt
 - **Demo CLI**: `python main.py`
 - **FastAPI Server**: `uvicorn app:app --reload`
 
+### Docker (one command, no local Python or Ollama needed)
+```bash
+docker compose up --build
+```
+This starts Ollama, pulls `llama3.2` + `nomic-embed-text` on first run, and serves the HSAL API on `localhost:8000`. Models and the Chroma store persist in named volumes.
+
 ### API Endpoints
 | Endpoint | Method | Description |
 | :--- | :--- | :--- |
@@ -178,14 +186,17 @@ Each of these is directly reproducible against the running server and covered by
 
 ---
 
-## 5. Testing
+## 5. Testing & CI
 
-The router, hashing, and cache logic are unit-tested against mock backends — no Ollama or ChromaDB required:
+The router, hashing, cache, and observability logic are unit-tested against mock backends — no Ollama or ChromaDB required:
 
 ```bash
 pip install -r requirements-dev.txt
-pytest
+pytest          # 36 tests
+ruff check .    # lint
 ```
+
+CI (GitHub Actions) runs lint, the test suite across Python 3.10–3.12, and a benchmark smoke run on every push and pull request.
 
 ---
 

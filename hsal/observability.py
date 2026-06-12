@@ -13,7 +13,6 @@ do all instrumentation.
 import json
 import logging
 import uuid
-from typing import Optional
 
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -61,8 +60,8 @@ def record_request(
     path: str,
     cacheable: bool,
     latency_ms: float,
-    similarity_score: Optional[float] = None,
-    error: Optional[str] = None,
+    similarity_score: float | None = None,
+    error: str | None = None,
 ) -> None:
     """Update metrics and emit one structured JSON log line."""
     REQUESTS_TOTAL.labels(path=path).inc()

@@ -1,4 +1,3 @@
-from typing import List
 
 import pytest
 
@@ -15,12 +14,12 @@ class FakeL2Cache(L2CacheService):
         self.searched_namespaces = []
         self.next_result = L2SearchResult(response="", similarity_score=0.0, found=False)
 
-    def search(self, embedding: List[float], top_k: int = 1,
+    def search(self, embedding: list[float], top_k: int = 1,
                namespace: str = "default") -> L2SearchResult:
         self.searched_namespaces.append(namespace)
         return self.next_result
 
-    def add(self, prompt: str, response: str, embedding: List[float],
+    def add(self, prompt: str, response: str, embedding: list[float],
             namespace: str = "default") -> None:
         self.entries.append((prompt, response, embedding, namespace))
 

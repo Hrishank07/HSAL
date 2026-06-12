@@ -1,6 +1,6 @@
 from dataclasses import dataclass
-from typing import Optional
 from enum import Enum
+
 
 class CacheSource(Enum):
     """Source of the cache response"""
@@ -18,7 +18,7 @@ class CacheRequest:
     cached answer (or caching the answer) would be wrong.
     """
     prompt: str
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
     cacheable: bool = True
 
 @dataclass
@@ -27,8 +27,8 @@ class CacheResponse:
     response: str
     source: CacheSource
     latency_ms: float
-    similarity_score: Optional[float] = None  # Only for L2 hits
-    
+    similarity_score: float | None = None  # Only for L2 hits
+
 @dataclass
 class L2SearchResult:
     """Result from L2 vector search"""

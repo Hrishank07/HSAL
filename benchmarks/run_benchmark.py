@@ -19,7 +19,6 @@ import argparse
 import random
 import sys
 from pathlib import Path
-from typing import List
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -33,7 +32,7 @@ class CountingEmbedder(MockEmbedder):
         super().__init__(dimension)
         self.calls = 0
 
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str) -> list[float]:
         self.calls += 1
         return super().embed(text)
 
@@ -61,22 +60,22 @@ class NullL2Cache(L2CacheService):
         pass
 
 
-def zipfian_traffic(n_requests: int, pool_size: int, rng: random.Random) -> List[str]:
+def zipfian_traffic(n_requests: int, pool_size: int, rng: random.Random) -> list[str]:
     # P(prompt_i) proportional to 1/(i+1) - classic power law
     weights = [1.0 / (i + 1) for i in range(pool_size)]
     ids = rng.choices(range(pool_size), weights=weights, k=n_requests)
     return [f"prompt number {i}" for i in ids]
 
 
-def uniform_traffic(n_requests: int, pool_size: int, rng: random.Random) -> List[str]:
+def uniform_traffic(n_requests: int, pool_size: int, rng: random.Random) -> list[str]:
     return [f"prompt number {rng.randrange(pool_size)}" for _ in range(n_requests)]
 
 
-def one_off_traffic(n_requests: int, pool_size: int, rng: random.Random) -> List[str]:
+def one_off_traffic(n_requests: int, pool_size: int, rng: random.Random) -> list[str]:
     return [f"unique prompt {i}" for i in range(n_requests)]
 
 
-def run_workload(name: str, prompts: List[str]) -> dict:
+def run_workload(name: str, prompts: list[str]) -> dict:
     embedder = CountingEmbedder()
     llm = CountingLLM()
     router = HSALRouter(

@@ -1,7 +1,6 @@
 import hashlib
 import json
 import re
-from typing import Optional
 
 
 def normalize(text: str, lowercase: bool = True) -> str:
@@ -19,7 +18,7 @@ def normalize(text: str, lowercase: bool = True) -> str:
     return text
 
 
-def context_fingerprint(context: Optional[dict]) -> str:
+def context_fingerprint(context: dict | None) -> str:
     """
     Deterministic fingerprint of the generation context.
 
@@ -35,11 +34,11 @@ def context_fingerprint(context: Optional[dict]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
-def hash_prompt(prompt: str, context: Optional[dict] = None, lowercase: bool = True) -> str:
+def hash_prompt(prompt: str, context: dict | None = None, lowercase: bool = True) -> str:
     """
     Generate the cache key: SHA256 of the normalized prompt,
     scoped by the context fingerprint.
     """
     normalized = normalize(prompt, lowercase=lowercase)
     fingerprint = context_fingerprint(context)
-    return hashlib.sha256(f"{fingerprint}:{normalized}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{fingerprint}:{normalized}".encode()).hexdigest()
