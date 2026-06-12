@@ -33,7 +33,18 @@ We built HSAL because production LLM workloads often follow a Power Law distribu
 | **L2** | Vector DB (Chroma) | **10-30 ms** | Probabilistic | Handles paraphrasing & intent |
 | **LLM** | Generation (Ollama) | **~2000 ms** | Generative | Full inference cost |
 
-By capturing L1 hits before generating embeddings, HSAL can reduce embedding infrastructure load by **30%-60%** in high-repeat environments.
+Savings depend entirely on how repetitive your traffic is. Measured with the included benchmark (`python benchmarks/run_benchmark.py`, 5,000 requests over a 500-prompt pool, mock backends, L1 tier only):
+
+| Workload | L1 Hit Rate | Embedding Calls Saved | LLM Calls Saved |
+| :--- | :--- | :--- | :--- |
+| Zipfian (power-law repeats) | 90.9% | 90.9% | 90.9% |
+| Uniform over fixed pool | 90.0% | 90.0% | 90.0% |
+| Every prompt unique | 0% | 0% | 0% |
+
+The honest summary: HSAL saves roughly your traffic's repetition rate, and saves nothing on one-off prompts. Run the benchmark with your own pool/request ratio before assuming numbers.
+
+### HSAL vs. Provider Prompt Caching
+OpenAI and Anthropic both offer provider-side **prompt caching**, which caches repeated *input prefixes* (system prompts, long documents) to cut input-token cost and time-to-first-token. That is complementary, not equivalent: prefix caching still runs generation and bills output tokens every time. HSAL is **response caching** — a hit skips generation entirely. Prefix caching makes repeated *contexts* cheaper; HSAL makes repeated *questions* free.
 
 ---
 
@@ -41,12 +52,20 @@ By capturing L1 hits before generating embeddings, HSAL can reduce embedding inf
 
 The heart of HSAL is the **Smart Router**. It orchestrates every request through a precise selection flow.
 
-### 3.1 Pre-processing: Semantic Normalization
-Before hashing, prompts undergo normalization:
-- Trimming whitespace.
-- Lowercasing (optional).
-- Removing redundant line breaks.
-*This ensures ` "Hello world"` and `"hello world  "` map to the same L1 record.*
+### 3.1 The Cache Key: Prompt + Context Fingerprint
+The user prompt alone is **not** a safe cache key. "Summarize this." produces different answers under a different model, system prompt, temperature, or tenant — hashing only the visible prompt would serve those answers interchangeably.
+
+HSAL therefore scopes every cache entry by a **context fingerprint**: a hash of everything that affects generation output (`model`, `system_prompt`, `temperature`, tool schema, tenant id — whatever you pass as the router's `context` dict). The fingerprint is mixed into every L1 key and namespaces every L2 entry, so cached answers are never served across configurations.
+
+```python
+router = HSALRouter(l1, l2, embedder, llm, context={
+    "model": "llama3.2",
+    "system_prompt": SYSTEM_PROMPT,
+    "temperature": 0.7,
+})
+```
+
+Before hashing, prompts are also normalized: whitespace trimmed and collapsed, and lowercased by default. Set `L1_LOWERCASE=false` for case-sensitive workloads (code, SQL, identifiers) where `SELECT * FROM Users` and `select * from users` must not collide.
 
 ### 3.2 The Decision Flow
 1.  **L1 FAST PATH**: Compute a SHA-256 hash of the normalized prompt. Check the L1 store. If hit, return immediately.
@@ -63,7 +82,25 @@ Cached LLM answers go stale and unbounded caches leak memory, so the L1 cache en
 The Redis backend applies the same TTL via native key expiry.
 
 ### 3.4 Known Trade-off: Semantic False Positives
-A semantic cache can return a *wrong* answer for a *similar* question — "What is the capital of France?" and "What is the capital of Finland?" can clear a 0.9 cosine threshold despite having different answers. `SIMILARITY_THRESHOLD` is deliberately configurable per deployment: raise it (e.g. 0.95+) for factual or precision-sensitive workloads, lower it for FAQ-style traffic where paraphrase tolerance matters more than exactness.
+A semantic cache can return a *wrong* answer for a *similar* question. These pairs can all clear a 0.9 cosine threshold while requiring different answers:
+
+- "Can I refund this order?" vs. "Can I refund this order after 30 days?"
+- "Delete user 123" vs. "Delete user 124"
+- "Summarize Q1 revenue" vs. "Summarize Q2 revenue"
+- "Is this medication safe for adults?" vs. "...for children?"
+
+`SIMILARITY_THRESHOLD` is deliberately configurable per deployment: raise it (0.95+) for factual or precision-sensitive workloads, lower it for FAQ-style traffic where paraphrase tolerance matters more than exactness.
+
+### 3.5 What Should Never Be Cached
+Some requests are wrong to cache at *any* threshold. Pass `cacheable: false` to bypass both cache reads and writes for:
+
+- **User-specific data** — "What is *my* account balance?"
+- **Time-sensitive questions** — anything whose answer changes between requests
+- **Tool/action requests** — "Delete user 123" must execute, not replay
+- **PII or private retrieved documents** — cached answers leak across users
+- **Legal/medical/financial advice** — staleness has real consequences
+
+Good candidates for caching: generic explanations, public FAQs, deterministic formatting, stable documentation questions.
 
 ---
 
@@ -103,6 +140,11 @@ pip install -r requirements.txt
 ```bash
 curl -X POST localhost:8000/query -H "Content-Type: application/json" \
      -d '{"prompt": "What is Python?"}'
+
+# user-specific request: bypass the cache entirely
+curl -X POST localhost:8000/query -H "Content-Type: application/json" \
+     -d '{"prompt": "What is my account balance?", "cacheable": false}'
+
 curl localhost:8000/stats
 ```
 
@@ -120,7 +162,7 @@ pytest
 ---
 
 ## 6. Project Roadmap
-- **Circuit Breaker**: Fail open to the LLM when the embedder or vector DB is unhealthy.
+- **Configurable Failure Policy**: When the embedder or vector DB is unhealthy — fail-open (availability-critical), fail-closed (budget-sensitive; unguarded fail-open can turn a cache outage into an LLM cost explosion), degrade to a cheaper model, or rate-limited fallback.
 - **Async Write-Through**: Moving L2 writes to background tasks.
 - **Hybrid L1**: Cross-instance L1 using a shared Redis instance.
 - **L2 TTL/Eviction**: Age out stale vector entries.

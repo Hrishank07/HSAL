@@ -12,13 +12,17 @@ class FakeL2Cache(L2CacheService):
 
     def __init__(self):
         self.entries = []
+        self.searched_namespaces = []
         self.next_result = L2SearchResult(response="", similarity_score=0.0, found=False)
 
-    def search(self, embedding: List[float], top_k: int = 1) -> L2SearchResult:
+    def search(self, embedding: List[float], top_k: int = 1,
+               namespace: str = "default") -> L2SearchResult:
+        self.searched_namespaces.append(namespace)
         return self.next_result
 
-    def add(self, prompt: str, response: str, embedding: List[float]) -> None:
-        self.entries.append((prompt, response, embedding))
+    def add(self, prompt: str, response: str, embedding: List[float],
+            namespace: str = "default") -> None:
+        self.entries.append((prompt, response, embedding, namespace))
 
 
 @pytest.fixture

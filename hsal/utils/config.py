@@ -35,5 +35,6 @@ class Settings(BaseSettings):
     # L1 Cache Policy
     L1_MAX_SIZE: int = 10_000   # Max entries for in-memory L1 (LRU eviction)
     L1_TTL_SECONDS: int = 3600  # Entry TTL; 0 disables expiry
+    L1_LOWERCASE: bool = True   # Disable for case-sensitive workloads (code, SQL, identifiers)
     
 settings = Settings()

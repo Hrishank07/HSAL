@@ -3,7 +3,7 @@ import time
 from typing import Optional
 
 from hsal.core.types import CacheRequest, CacheResponse, CacheSource
-from hsal.core.hashing import hash_prompt
+from hsal.core.hashing import hash_prompt, context_fingerprint
 from hsal.services.embedder import EmbedderService
 from hsal.services.l1_cache import L1CacheService
 from hsal.services.l2_cache import L2CacheService
@@ -29,8 +29,15 @@ class HSALRouter:
         embedder: EmbedderService,
         llm: LLMService,
         similarity_threshold: Optional[float] = None,
-        promotion_threshold: Optional[float] = None
+        promotion_threshold: Optional[float] = None,
+        context: Optional[dict] = None
     ):
+        """
+        context: everything that affects generation output beyond the user
+        prompt — model id/version, system prompt, temperature, tool schema,
+        tenant id, etc. It is fingerprinted into every cache key (L1) and
+        namespace (L2), so answers are never served across configurations.
+        """
         self.l1_cache = l1_cache
         self.l2_cache = l2_cache
         self.embedder = embedder
@@ -38,6 +45,9 @@ class HSALRouter:
 
         self.similarity_threshold = similarity_threshold or settings.SIMILARITY_THRESHOLD
         self.promotion_threshold = promotion_threshold or settings.PROMOTION_THRESHOLD
+
+        self.context = context
+        self._namespace = context_fingerprint(context)
 
         self._stats_lock = threading.Lock()
         self._counts = {source: 0 for source in CacheSource}
@@ -51,8 +61,15 @@ class HSALRouter:
         start_time = time.time()
         prompt = request.prompt
 
+        # Step 0: Non-cacheable requests bypass caches entirely
+        # (no read: a cached answer may be wrong for this request;
+        #  no write: its answer must not be served to anyone else)
+        if not request.cacheable:
+            response = self.llm.generate(prompt)
+            return self._respond(response, CacheSource.LLM_GENERATED, start_time)
+
         # Step 1: L1 Exact Match (Fast Path)
-        hash_key = hash_prompt(prompt)
+        hash_key = hash_prompt(prompt, self.context, lowercase=settings.L1_LOWERCASE)
         l1_result = self.l1_cache.get(hash_key)
 
         if l1_result is not None:
@@ -60,7 +77,7 @@ class HSALRouter:
 
         # Step 2: L2 Semantic Match (Warm Path)
         embedding = self.embedder.embed(prompt)
-        l2_result = self.l2_cache.search(embedding)
+        l2_result = self.l2_cache.search(embedding, namespace=self._namespace)
 
         if l2_result.found and l2_result.similarity_score >= self.similarity_threshold:
             # Step 3: Cache Promotion (if score is high enough)
@@ -77,7 +94,7 @@ class HSALRouter:
 
         # Update both caches
         self.l1_cache.set(hash_key, response)
-        self.l2_cache.add(prompt, response, embedding)
+        self.l2_cache.add(prompt, response, embedding, namespace=self._namespace)
 
         return self._respond(response, CacheSource.LLM_GENERATED, start_time)
 

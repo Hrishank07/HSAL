@@ -18,11 +18,21 @@ l1 = InMemoryL1Cache()
 l2 = ChromaL2Cache()
 embedder = OllamaEmbedder()
 llm = OllamaLLM()
-router = HSALRouter(l1, l2, embedder, llm)
+
+# Everything that affects generation output belongs in the context:
+# cached answers are only served within this exact configuration.
+router = HSALRouter(l1, l2, embedder, llm, context={
+    "provider": "ollama",
+    "model": llm.model,
+    "embed_model": embedder.model,
+})
 
 
 class QueryRequest(BaseModel):
     prompt: str
+    # Set false for user-specific, time-sensitive, or PII-bearing prompts:
+    # bypasses cache reads AND writes.
+    cacheable: bool = True
 
 
 class QueryResponse(BaseModel):
@@ -38,7 +48,7 @@ class QueryResponse(BaseModel):
 @app.post("/query", response_model=QueryResponse)
 def query_hsal(request: QueryRequest):
     try:
-        result = router.query(CacheRequest(prompt=request.prompt))
+        result = router.query(CacheRequest(prompt=request.prompt, cacheable=request.cacheable))
         return QueryResponse(
             response=result.response,
             source=result.source.value,

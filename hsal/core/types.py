@@ -10,9 +10,16 @@ class CacheSource(Enum):
 
 @dataclass
 class CacheRequest:
-    """Request to the HSAL system"""
+    """
+    Request to the HSAL system.
+
+    cacheable=False bypasses both cache reads and writes — use for
+    user-specific, time-sensitive, or PII-bearing prompts where a
+    cached answer (or caching the answer) would be wrong.
+    """
     prompt: str
     metadata: Optional[dict] = None
+    cacheable: bool = True
 
 @dataclass
 class CacheResponse:
