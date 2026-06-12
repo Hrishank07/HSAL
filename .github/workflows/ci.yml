@@ -28,8 +28,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       # Tests run against mock backends - no Ollama/Chroma/Redis needed
-      - run: pip install pytest pydantic pydantic-settings python-dotenv prometheus-client
-      - run: pytest
+      - run: pip install pytest pytest-cov pydantic pydantic-settings python-dotenv prometheus-client
+      - run: pytest --cov=hsal --cov-report=term-missing
+      - name: Coverage summary
+        if: matrix.python-version == '3.12'
+        run: |
+          pytest --cov=hsal --cov-report= --quiet
+          python -m coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
 
   benchmark-smoke:
     runs-on: ubuntu-latest

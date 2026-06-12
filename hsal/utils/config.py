@@ -38,4 +38,9 @@ class Settings(BaseSettings):
     L1_TTL_SECONDS: int = 3600  # Entry TTL; 0 disables expiry
     L1_LOWERCASE: bool = True   # Disable for case-sensitive workloads (code, SQL, identifiers)
 
+    # Rate Limiting (fixed window, keyed by client IP in the API layer)
+    RATE_LIMIT_ENABLED: bool = False  # Off by default for local/demo mode
+    RATE_LIMIT_REQUESTS: int = 60     # Allowed requests per window
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+
 settings = Settings()

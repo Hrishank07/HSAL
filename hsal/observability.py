@@ -33,6 +33,10 @@ CACHE_BYPASS_TOTAL = Counter(
     "Requests that bypassed the cache",
     ["reason"],
 )
+RATE_LIMITED_TOTAL = Counter(
+    "hsal_rate_limited_total",
+    "Requests rejected by the rate limiter",
+)
 REQUEST_LATENCY = Histogram(
     "hsal_request_latency_seconds",
     "End-to-end request latency by resolution path",

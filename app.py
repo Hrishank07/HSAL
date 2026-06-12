@@ -1,5 +1,6 @@
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from hsal import (
@@ -10,7 +11,14 @@ from hsal import (
     OllamaEmbedder,
     OllamaLLM,
 )
-from hsal.observability import metrics_response, new_request_id, record_request
+from hsal.guards import InMemoryRateLimiter
+from hsal.observability import (
+    RATE_LIMITED_TOTAL,
+    metrics_response,
+    new_request_id,
+    record_request,
+)
+from hsal.utils.config import settings
 
 app = FastAPI(title="HSAL API - Local Semantic Cache")
 
@@ -28,6 +36,10 @@ router = HSALRouter(l1, l2, embedder, llm, context={
     "model": llm.model,
     "embed_model": embedder.model,
 })
+
+# Fixed-window limiter, keyed by client IP. Swap in RedisRateLimiter for
+# multi-instance deployments. Enable via RATE_LIMIT_ENABLED=true.
+rate_limiter = InMemoryRateLimiter() if settings.RATE_LIMIT_ENABLED else None
 
 
 class QueryRequest(BaseModel):
@@ -54,8 +66,29 @@ class QueryResponse(BaseModel):
 # LLM calls), so FastAPI runs it in a threadpool instead of blocking the event
 # loop, which an `async def` here would do.
 @app.post("/query", response_model=QueryResponse)
-def query_hsal(request: QueryRequest):
+def query_hsal(request: QueryRequest, http_request: Request):
     request_id = new_request_id()
+
+    # Rate limit BEFORE any embedding/LLM work: the limiter exists to
+    # protect compute, so it must run in front of the expensive path.
+    if rate_limiter is not None:
+        client_key = http_request.client.host if http_request.client else "unknown"
+        verdict = rate_limiter.check(client_key)
+        if not verdict.allowed:
+            RATE_LIMITED_TOTAL.inc()
+            record_request(request_id, "RATE_LIMITED", request.cacheable, 0.0)
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(verdict.retry_after_seconds)},
+                content={
+                    "error": "rate_limited",
+                    "limit": verdict.limit,
+                    "window_seconds": verdict.window_seconds,
+                    "retry_after_seconds": verdict.retry_after_seconds,
+                    "request_id": request_id,
+                },
+            )
+
     try:
         result = router.query(
             CacheRequest(prompt=request.prompt, cacheable=request.cacheable)

@@ -93,7 +93,22 @@ A semantic cache can return a *wrong* answer for a *similar* question. These pai
 
 `SIMILARITY_THRESHOLD` is deliberately configurable per deployment: raise it (0.95+) for factual or precision-sensitive workloads, lower it for FAQ-style traffic where paraphrase tolerance matters more than exactness.
 
-### 3.5 What Should Never Be Cached
+### 3.5 Rate Limiting
+A fixed-window limiter (off by default — set `RATE_LIMIT_ENABLED=true`) runs **before** any embedding or LLM call, keyed by client IP. Rejected requests get a `429` with a `Retry-After` header and a structured body:
+
+```json
+{
+  "error": "rate_limited",
+  "limit": 60,
+  "window_seconds": 60,
+  "retry_after_seconds": 23,
+  "request_id": "req_..."
+}
+```
+
+Two backends: `InMemoryRateLimiter` (single process, local mode) and `RedisRateLimiter` (cross-instance, INCR + EXPIRE per window). Known fixed-window trade-off: a burst straddling a window boundary can briefly see up to 2× the limit — acceptable for compute protection, and simpler to reason about than sliding windows.
+
+### 3.6 What Should Never Be Cached
 Some requests are wrong to cache at *any* threshold. Pass `cacheable: false` to bypass both cache reads and writes for:
 
 - **User-specific data** — "What is *my* account balance?"
